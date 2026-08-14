@@ -6,7 +6,7 @@ dotenv.config();
 
 async function seed() {
   const pool = await getPool();
-  console.log("Seeding database...");
+  console.log("Seeding Supabase database...");
 
   const adminPass = await bcrypt.hash("Admin@123", 10);
   const employerPass = await bcrypt.hash("Employer@123", 10);
@@ -15,42 +15,58 @@ async function seed() {
   await pool.query(
     `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
      VALUES (?, ?, ?, 'admin', ?, NULL, 'Platform Administrator', 'Karachi', 'System admin')
-     ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+     ON CONFLICT (email) DO UPDATE SET
+       name = EXCLUDED.name,
+       password = EXCLUDED.password,
+       role = EXCLUDED.role`,
     ["Admin User", "admin@jobportal.com", adminPass, "+92-300-0000001"]
   );
 
   await pool.query(
     `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
      VALUES (?, ?, ?, 'employer', ?, ?, 'Hiring Manager', 'Lahore', 'Building high-performing teams')
-     ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+     ON CONFLICT (email) DO UPDATE SET
+       name = EXCLUDED.name,
+       password = EXCLUDED.password,
+       role = EXCLUDED.role,
+       company_name = EXCLUDED.company_name`,
     ["Sara Ahmed", "employer@nova.com", employerPass, "+92-300-0000002", "NovaTech Solutions"]
   );
 
   await pool.query(
     `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
      VALUES (?, ?, ?, 'employer', ?, ?, 'Talent Lead', 'Islamabad', 'Product-led growth company')
-     ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+     ON CONFLICT (email) DO UPDATE SET
+       name = EXCLUDED.name,
+       password = EXCLUDED.password,
+       role = EXCLUDED.role,
+       company_name = EXCLUDED.company_name`,
     ["Ali Raza", "employer@pixelcraft.com", employerPass, "+92-300-0000003", "PixelCraft Studio"]
   );
 
   await pool.query(
     `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
      VALUES (?, ?, ?, 'seeker', ?, NULL, 'Full Stack Developer', 'Karachi', 'React & Node specialist')
-     ON DUPLICATE KEY UPDATE name = VALUES(name)`,
+     ON CONFLICT (email) DO UPDATE SET
+       name = EXCLUDED.name,
+       password = EXCLUDED.password,
+       role = EXCLUDED.role`,
     ["Hassan Khan", "seeker@mail.com", seekerPass, "+92-300-0000004"]
   );
 
   const [employers] = await pool.query(
     "SELECT id, company_name FROM users WHERE role = 'employer' ORDER BY id ASC"
   );
-  const [jobCount] = await pool.query("SELECT COUNT(*) AS c FROM jobs");
+  const [approvedCount] = await pool.query(
+    "SELECT COUNT(*)::int AS c FROM jobs WHERE status = 'approved'"
+  );
 
-  if (jobCount[0].c === 0 && employers.length >= 2) {
+  if (approvedCount[0].c === 0 && employers.length >= 2) {
     const jobs = [
       {
         employer_id: employers[0].id,
         title: "Senior React Developer",
-        company: employers[0].company_name,
+        company: employers[0].company_name || "NovaTech Solutions",
         location: "Lahore / Hybrid",
         type: "Full-time",
         category: "Engineering",
@@ -67,7 +83,7 @@ async function seed() {
       {
         employer_id: employers[0].id,
         title: "Backend Node.js Engineer",
-        company: employers[0].company_name,
+        company: employers[0].company_name || "NovaTech Solutions",
         location: "Remote",
         type: "Full-time",
         category: "Engineering",
@@ -84,7 +100,7 @@ async function seed() {
       {
         employer_id: employers[1].id,
         title: "UI/UX Designer",
-        company: employers[1].company_name,
+        company: employers[1].company_name || "PixelCraft Studio",
         location: "Islamabad",
         type: "Full-time",
         category: "Design",
@@ -101,7 +117,7 @@ async function seed() {
       {
         employer_id: employers[1].id,
         title: "Digital Marketing Specialist",
-        company: employers[1].company_name,
+        company: employers[1].company_name || "PixelCraft Studio",
         location: "Karachi",
         type: "Part-time",
         category: "Marketing",
@@ -118,7 +134,7 @@ async function seed() {
       {
         employer_id: employers[0].id,
         title: "QA Automation Intern",
-        company: employers[0].company_name,
+        company: employers[0].company_name || "NovaTech Solutions",
         location: "Lahore",
         type: "Internship",
         category: "Engineering",

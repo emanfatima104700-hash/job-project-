@@ -74,7 +74,8 @@ router.patch("/users/:id", async (req, res) => {
     const [existing] = await pool.query("SELECT * FROM users WHERE id = ?", [req.params.id]);
     if (!existing.length) return res.status(404).json({ message: "User not found" });
 
-    const nextActive = typeof is_active === "boolean" || is_active === 0 || is_active === 1 ? Number(is_active) : existing[0].is_active;
+    const nextActive =
+      is_active === undefined ? existing[0].is_active : Boolean(is_active);
     const nextRole = ["seeker", "employer", "admin"].includes(role) ? role : existing[0].role;
 
     await pool.query("UPDATE users SET is_active = ?, role = ? WHERE id = ?", [

@@ -1,56 +1,90 @@
-import mysql from "mysql2/promise";
+import pg from "pg";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-const dbConfig = {
-  host: process.env.DB_HOST || "localhost",
-  port: Number(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-  waitForConnections: true,
-  connectionLimit: 10,
-};
+const { Pool } = pg;
+
+function toPgParams(sql) {
+  let index = 0;
+  return sql.replace(/\?/g, () => `$${++index}`);
+}
+
+function normalizeSql(sql) {
+  let text = sql.replace(/`/g, "");
+
+  if (/INSERT\s+IGNORE/i.test(text)) {
+    text = text.replace(/INSERT\s+IGNORE/i, "INSERT");
+    if (!/ON CONFLICT/i.test(text)) {
+      text += " ON CONFLICT DO NOTHING";
+    }
+  }
+
+  const isInsert = /^\s*INSERT/i.test(text);
+  if (isInsert && !/RETURNING/i.test(text)) {
+    text = `${text.replace(/;?\s*$/, "")} RETURNING id`;
+  }
+
+  return text;
+}
 
 export async function initDatabase() {
-  const connection = await mysql.createConnection(dbConfig);
-  await connection.query(
-    `CREATE DATABASE IF NOT EXISTS \`${process.env.DB_NAME || "job_portal"}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-  );
-  await connection.end();
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error(
+      "DATABASE_URL missing. Get it from Supabase → Project Settings → Database → Connection string (URI)."
+    );
+  }
 
-  const pool = mysql.createPool({
-    ...dbConfig,
-    database: process.env.DB_NAME || "job_portal",
+  const pool = new Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: false },
   });
 
-  await pool.query(`
+  const db = {
+    async query(sql, params = []) {
+      const text = toPgParams(normalizeSql(sql));
+      const result = await pool.query(text, params);
+      const meta = {
+        insertId: result.rows[0]?.id ?? 0,
+        affectedRows: result.rowCount || 0,
+        rowCount: result.rowCount || 0,
+      };
+      return [result.rows, meta];
+    },
+    async end() {
+      await pool.end();
+    },
+  };
+
+  await db.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       name VARCHAR(120) NOT NULL,
       email VARCHAR(180) NOT NULL UNIQUE,
       password VARCHAR(255) NOT NULL,
-      role ENUM('seeker', 'employer', 'admin') NOT NULL DEFAULT 'seeker',
+      role VARCHAR(20) NOT NULL DEFAULT 'seeker' CHECK (role IN ('seeker', 'employer', 'admin')),
       phone VARCHAR(40) DEFAULT NULL,
       company_name VARCHAR(180) DEFAULT NULL,
       title VARCHAR(180) DEFAULT NULL,
       bio TEXT DEFAULT NULL,
       location VARCHAR(180) DEFAULT NULL,
       avatar VARCHAR(255) DEFAULT NULL,
-      is_active TINYINT(1) NOT NULL DEFAULT 1,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
 
-  await pool.query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS jobs (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      employer_id INT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      employer_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       title VARCHAR(200) NOT NULL,
       company VARCHAR(180) NOT NULL,
       location VARCHAR(180) NOT NULL,
-      type ENUM('Full-time', 'Part-time', 'Contract', 'Internship', 'Remote') NOT NULL DEFAULT 'Full-time',
+      type VARCHAR(30) NOT NULL DEFAULT 'Full-time'
+        CHECK (type IN ('Full-time', 'Part-time', 'Contract', 'Internship', 'Remote')),
       category VARCHAR(100) NOT NULL DEFAULT 'General',
       salary_min INT DEFAULT NULL,
       salary_max INT DEFAULT NULL,
@@ -58,43 +92,40 @@ export async function initDatabase() {
       requirements TEXT DEFAULT NULL,
       benefits TEXT DEFAULT NULL,
       skills VARCHAR(500) DEFAULT NULL,
-      status ENUM('pending', 'approved', 'rejected', 'closed') NOT NULL DEFAULT 'pending',
+      status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'approved', 'rejected', 'closed')),
       views INT NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (employer_id) REFERENCES users(id) ON DELETE CASCADE
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
 
-  await pool.query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS applications (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      job_id INT NOT NULL,
-      seeker_id INT NOT NULL,
+      id SERIAL PRIMARY KEY,
+      job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      seeker_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       cover_letter TEXT DEFAULT NULL,
       resume_url VARCHAR(255) DEFAULT NULL,
-      status ENUM('pending', 'reviewed', 'shortlisted', 'rejected', 'hired') NOT NULL DEFAULT 'pending',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY unique_application (job_id, seeker_id),
-      FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE,
-      FOREIGN KEY (seeker_id) REFERENCES users(id) ON DELETE CASCADE
+      status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'reviewed', 'shortlisted', 'rejected', 'hired')),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (job_id, seeker_id)
     )
   `);
 
-  await pool.query(`
+  await db.query(`
     CREATE TABLE IF NOT EXISTS saved_jobs (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      user_id INT NOT NULL,
-      job_id INT NOT NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY unique_save (user_id, job_id),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      job_id INT NOT NULL REFERENCES jobs(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (user_id, job_id)
     )
   `);
 
-  return pool;
+  return db;
 }
 
 let poolPromise = null;
