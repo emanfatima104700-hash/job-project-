@@ -8,51 +8,76 @@ async function seed() {
   const pool = await getPool();
   console.log("Seeding Supabase database...");
 
+  await pool.query(
+    "CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique ON users (email)"
+  );
+
   const adminPass = await bcrypt.hash("Admin@123", 10);
   const employerPass = await bcrypt.hash("Employer@123", 10);
   const seekerPass = await bcrypt.hash("Seeker@123", 10);
 
-  await pool.query(
-    `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
-     VALUES (?, ?, ?, 'admin', ?, NULL, 'Platform Administrator', 'Karachi', 'System admin')
-     ON CONFLICT (email) DO UPDATE SET
-       name = EXCLUDED.name,
-       password = EXCLUDED.password,
-       role = EXCLUDED.role`,
-    ["Admin User", "admin@jobportal.com", adminPass, "+92-300-0000001"]
-  );
+  async function upsertUser({ name, email, password, role, phone, company_name, title, location, bio }) {
+    const [existing] = await pool.query("SELECT id FROM users WHERE email = ?", [email]);
+    if (existing.length) {
+      await pool.query(
+        `UPDATE users SET name = ?, password = ?, role = ?, phone = ?, company_name = ?, title = ?, location = ?, bio = ?
+         WHERE email = ?`,
+        [name, password, role, phone || null, company_name || null, title || null, location || null, bio || null, email]
+      );
+      return;
+    }
+    await pool.query(
+      `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, email, password, role, phone || null, company_name || null, title || null, location || null, bio || null]
+    );
+  }
 
-  await pool.query(
-    `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
-     VALUES (?, ?, ?, 'employer', ?, ?, 'Hiring Manager', 'Lahore', 'Building high-performing teams')
-     ON CONFLICT (email) DO UPDATE SET
-       name = EXCLUDED.name,
-       password = EXCLUDED.password,
-       role = EXCLUDED.role,
-       company_name = EXCLUDED.company_name`,
-    ["Sara Ahmed", "employer@nova.com", employerPass, "+92-300-0000002", "NovaTech Solutions"]
-  );
+  await upsertUser({
+    name: "Admin User",
+    email: "admin@jobportal.com",
+    password: adminPass,
+    role: "admin",
+    phone: "+92-300-0000001",
+    title: "Platform Administrator",
+    location: "Karachi",
+    bio: "System admin",
+  });
 
-  await pool.query(
-    `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
-     VALUES (?, ?, ?, 'employer', ?, ?, 'Talent Lead', 'Islamabad', 'Product-led growth company')
-     ON CONFLICT (email) DO UPDATE SET
-       name = EXCLUDED.name,
-       password = EXCLUDED.password,
-       role = EXCLUDED.role,
-       company_name = EXCLUDED.company_name`,
-    ["Ali Raza", "employer@pixelcraft.com", employerPass, "+92-300-0000003", "PixelCraft Studio"]
-  );
+  await upsertUser({
+    name: "Sara Ahmed",
+    email: "employer@nova.com",
+    password: employerPass,
+    role: "employer",
+    phone: "+92-300-0000002",
+    company_name: "NovaTech Solutions",
+    title: "Hiring Manager",
+    location: "Lahore",
+    bio: "Building high-performing teams",
+  });
 
-  await pool.query(
-    `INSERT INTO users (name, email, password, role, phone, company_name, title, location, bio)
-     VALUES (?, ?, ?, 'seeker', ?, NULL, 'Full Stack Developer', 'Karachi', 'React & Node specialist')
-     ON CONFLICT (email) DO UPDATE SET
-       name = EXCLUDED.name,
-       password = EXCLUDED.password,
-       role = EXCLUDED.role`,
-    ["Hassan Khan", "seeker@mail.com", seekerPass, "+92-300-0000004"]
-  );
+  await upsertUser({
+    name: "Ali Raza",
+    email: "employer@pixelcraft.com",
+    password: employerPass,
+    role: "employer",
+    phone: "+92-300-0000003",
+    company_name: "PixelCraft Studio",
+    title: "Talent Lead",
+    location: "Islamabad",
+    bio: "Product-led growth company",
+  });
+
+  await upsertUser({
+    name: "Hassan Khan",
+    email: "seeker@mail.com",
+    password: seekerPass,
+    role: "seeker",
+    phone: "+92-300-0000004",
+    title: "Full Stack Developer",
+    location: "Karachi",
+    bio: "React & Node specialist",
+  });
 
   const [employers] = await pool.query(
     "SELECT id, company_name FROM users WHERE role = 'employer' ORDER BY id ASC"

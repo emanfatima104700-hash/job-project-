@@ -9,7 +9,9 @@ import { improveCoverLetter } from "../services/openai.js";
 
 const router = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadDir = path.join(__dirname, "../../uploads/resumes");
+const uploadDir = process.env.VERCEL
+  ? path.join("/tmp", "resumes")
+  : path.join(__dirname, "../../uploads/resumes");
 fs.mkdirSync(uploadDir, { recursive: true });
 
 const storage = multer.diskStorage({
