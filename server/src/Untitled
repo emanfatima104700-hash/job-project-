@@ -1,3 +1,4 @@
+:::writing{variant="document" id="58321" title="Corrected server/src/index.js"}
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -59,3 +60,4 @@ app.use((err, _req, res, _next) => {
 });
 
 export default app;
+:::
