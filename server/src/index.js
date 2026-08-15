@@ -9,6 +9,9 @@ import jobRoutes from "./routes/jobs.js";
 import applicationRoutes from "./routes/applications.js";
 import adminRoutes from "./routes/admin.js";
 import savedRoutes from "./routes/saved.js";
+import app from "../src/index.js";
+
+export default app;
 
 dotenv.config();
 
@@ -41,18 +44,4 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: err.message || "Server error" });
 });
 
-async function start() {
-  try {
-    await getPool();
-    console.log("Database connected & tables ready");
-    app.listen(PORT, () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
-  } catch (err) {
-    console.error("Failed to start server:", err.message);
-    console.error("Make sure MySQL is running and DB credentials in .env are correct.");
-    process.exit(1);
-  }
-}
-
-start();
+export default app;
